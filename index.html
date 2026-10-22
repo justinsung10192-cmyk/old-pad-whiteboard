@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <!-- iOS 9 全螢幕與觸控優化 Meta 設定 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="手寫板">
+  <title>手寫板</title>
+  
+  <style>
+    /* 全局防選取與重置，包含 -webkit 前綴以相容 iOS 9 WebKit */
+    * {
+      -webkit-box-sizing: border-box;
+      box-sizing: border-box;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: rgba(0,0,0,0);
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #000000;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    /* 主應用容器：彈性佈局 */
+    #app {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: -webkit-box;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-box-orient: vertical;
+      -webkit-box-direction: normal;
+      -webkit-flex-direction: column;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+    }
+
+    /* 畫布容器 */
+    #canvas-container {
+      -webkit-box-flex: 1;
+      -webkit-flex: 1;
+      flex: 1;
+      position: relative;
+      background-color: #ffffff;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      touch-action: none;
+    }
+
+    /* 底部 iOS 風格工具列 */
+    #toolbar {
+      background-color: #1c1c1e;
+      border-top: 1px solid #2c2c2e;
+      padding: 8px 12px;
+      display: -webkit-box;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-box-orient: vertical;
+      -webkit-box-direction: normal;
+      -webkit-flex-direction: column;
+      flex-direction: column;
+      /* 安全區域 padding (iOS) */
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    .tool-row {
+      display: -webkit-box;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-box-align: center;
+      -webkit-align-items: center;
+      align-items: center;
+      -webkit-box-pack: space-between;
+      -webkit-justify-content: space-between;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .tool-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .tool-group {
+      display: -webkit-box;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-box-align: center;
+      -webkit-align-items: center;
+      align-items: center;
+    }
+
+    /* 按鈕與工具樣式 */
+    .btn {
+      background-color: #2c2c2e;
+      color: #ffffff;
+      border: 1px solid #3a3a3c;
+      padding: 6px 12px;
+      font-size: 14px;
+      border-radius: 8px;
+      outline: none;
+      margin-right: 6px;
+      cursor: pointer;
+      display: -webkit-box;
+      display: -webkit-flex;
+      display: flex;
+      -webkit-box-align: center;
+      -webkit-align-items: center;
+      align-items: center;
+      -webkit-box-pack: center;
+      -webkit-justify-content: center;
+      justify-content: center;
+      min-height: 36px;
+    }
+
+    .btn:last-child {
+      margin-right: 0;
+    }
+
+    .btn:active {
+      opacity: 0.6;
+      background-color: #3a3a3c;
+    }
+
+    .btn.active {
+      background-color: #0a84ff;
+      border-color: #0a84ff;
+      color: #ffffff;
+      font-weight: bold;
+    }
+
+    .btn:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+
+    .btn-danger {
+      background-color: #ff453a;
+      border-color: #ff453a;
+      color: #ffffff;
+    }
+
+    .btn-danger:active {
+      background-color: #d93025;
+    }
+
+    /* 顏色按鈕圓點 */
+    .color-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      margin-right: 8px;
+      padding: 0;
+      cursor: pointer;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .color-btn.active {
+      border-color: #ffffff;
+      -webkit-transform: scale(1.15);
+      transform: scale(1.15);
+    }
+
+    .color-black { background-color: #000000; }
+    .color-red   { background-color: #ff3b30; }
+    .color-blue  { background-color: #007aff; }
+    .color-green { background-color: #34c759; }
+
+    .divider {
+      width: 1px;
+      height: 24px;
+      background-color: #3a3a3c;
+      margin: 0 8px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app">
+    <!-- 繪圖區域 -->
+    <div id="canvas-container">
+      <canvas id="paintCanvas"></canvas>
+    </div>
+
+    <!-- 底部功能列 -->
+    <div id="toolbar">
+      <!-- 第一排：筆觸與顏色選單 -->
+      <div class="tool-row">
+        <!-- 筆觸大小 -->
+        <div class="tool-group">
+          <button class="btn btn-size" id="btnSizeFine" data-size="2">細</button>
+          <button class="btn btn-size active" id="btnSizeMedium" data-size="6">中</button>
+          <button class="btn btn-size" id="btnSizeThick" data-size="14">粗</button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- 顏色切換 -->
+        <div class="tool-group">
+          <button class="color-btn color-black active" id="btnColorBlack" data-color="#000000"></button>
+          <button class="color-btn color-red" id="btnColorRed" data-color="#ff3b30"></button>
+          <button class="color-btn color-blue" id="btnColorBlue" data-color="#007aff"></button>
+          <button class="color-btn color-green" id="btnColorGreen" data-color="#34c759"></button>
+          <button class="btn" id="btnEraser">橡皮擦</button>
+        </div>
+      </div>
+
+      <!-- 第二排：歷史紀錄與清除 -->
+      <div class="tool-row">
+        <div class="tool-group">
+          <button class="btn" id="btnUndo" disabled>↩ 復原</button>
+          <button class="btn" id="btnRedo" disabled>↪ 重做</button>
+        </div>
+
+        <div class="tool-group">
+          <button class="btn btn-danger" id="btnClear">清空畫布</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* 嚴格採用 ES5 語法（var, function），確保 iOS 9.3 Safari 相容性 */
+    (function() {
+      var canvas = document.getElementById("paintCanvas");
+      var ctx = canvas.getContext("2d");
+      var container = document.getElementById("canvas-container");
+
+      // 狀態變數
+      var isDrawing = false;
+      var lastX = 0;
+      var lastY = 0;
+      var currentColor = "#000000";
+      var currentSize = 6;
+      var isEraser = false;
+
+      // 記憶體 Undo / Redo 棧（上限 20 步，避免 iOS 9 舊裝置記憶體過載）
+      var undoStack = [];
+      var redoStack = [];
+      var MAX_HISTORY = 20;
+
+      // 初始化畫布尺寸（針對 Retina 高解析度螢幕優化）
+      function initCanvasSize() {
+        var dpr = window.devicePixelRatio || 1;
+        var rect = container.getBoundingClientRect();
+
+        // 避免調整大小時拉伸已繪製內容，先保存目前畫面
+        var tempImage = null;
+        if (canvas.width > 0 && canvas.height > 0) {
+          tempImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        }
+
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+
+        // 初始化畫布背景為純白
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, rect.width, rect.height);
+
+        // 若有歷史影像則還原
+        if (tempImage) {
+          ctx.putImageData(tempImage, 0, 0);
+        } else {
+          saveState(); // 記錄初始空白狀態
+        }
+
+        resetCtxStyle();
+      }
+
+      // 重置畫布繪圖風格
+      function resetCtxStyle() {
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+      }
+
+      // 儲存狀態至記憶體 Stack
+      function saveState() {
+        if (undoStack.length >= MAX_HISTORY) {
+          undoStack.shift(); // 移除最舊紀錄
+        }
+        var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        undoStack.push(imgData);
+        
+        // 每次產生新筆劃時，清空重做棧
+        redoStack = [];
+        updateButtonStates();
+      }
+
+      // 復原 (Undo)
+      function undo() {
+        if (undoStack.length > 1) {
+          var current = undoStack.pop();
+          redoStack.push(current);
+          var previous = undoStack[undoStack.length - 1];
+          ctx.putImageData(previous, 0, 0);
+          updateButtonStates();
+        }
+      }
+
+      // 重做 (Redo)
+      function redo() {
+        if (redoStack.length > 0) {
+          var next = redoStack.pop();
+          undoStack.push(next);
+          ctx.putImageData(next, 0, 0);
+          updateButtonStates();
+        }
+      }
+
+      // 更新復原/重做按鈕啟用狀態
+      function updateButtonStates() {
+        var btnUndo = document.getElementById("btnUndo");
+        var btnRedo = document.getElementById("btnRedo");
+        
+        btnUndo.disabled = undoStack.length <= 1;
+        btnRedo.disabled = redoStack.length === 0;
+      }
+
+      // 計算座標 (相容 Touch 與 Mouse 事件)
+      function getPos(e) {
+        var rect = canvas.getBoundingClientRect();
+        var clientX = 0;
+        var clientY = 0;
+
+        if (e.touches && e.touches.length > 0) {
+          clientX = e.touches[0].clientX;
+          clientY = e.touches[0].clientY;
+        } else if (e.changedTouches && e.changedTouches.length > 0) {
+          clientX = e.changedTouches[0].clientX;
+          clientY = e.changedTouches[0].clientY;
+        } else {
+          clientX = e.clientX;
+          clientY = e.clientY;
+        }
+
+        return {
+          x: clientX - rect.left,
+          y: clientY - rect.top
+        };
+      }
+
+      // 開始繪圖
+      function startDrawing(e) {
+        // 防止多指觸控干擾
+        if (e.touches && e.touches.length > 1) return;
+        
+        e.preventDefault(); // 阻止 iOS Safari 預設橡皮筋滾動行為
+        isDrawing = true;
+
+        var pos = getPos(e);
+        lastX = pos.x;
+        lastY = pos.y;
+
+        // 點擊時繪製單個圓點
+        ctx.beginPath();
+        ctx.fillStyle = isEraser ? "#ffffff" : currentColor;
+        var radius = (isEraser ? currentSize * 2.5 : currentSize) / 2;
+        ctx.arc(lastX, lastY, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 準備路徑
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+      }
+
+      // 繪製中
+      function draw(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+
+        var pos = getPos(e);
+
+        ctx.strokeStyle = isEraser ? "#ffffff" : currentColor;
+        ctx.lineWidth = isEraser ? currentSize * 2.5 : currentSize;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+
+        lastX = pos.x;
+        lastY = pos.y;
+      }
+
+      // 結束繪圖
+      function stopDrawing(e) {
+        if (isDrawing) {
+          isDrawing = false;
+          ctx.beginPath();
+          saveState(); // 筆畫結束後保存記憶體快照
+        }
+      }
+
+      // 綁定觸控事件 (iOS 9 相容性核心)
+      canvas.addEventListener("touchstart", startDrawing, false);
+      canvas.addEventListener("touchmove", draw, false);
+      canvas.addEventListener("touchend", stopDrawing, false);
+      canvas.addEventListener("touchcancel", stopDrawing, false);
+
+      // 電腦滑鼠事件備用
+      canvas.addEventListener("mousedown", startDrawing, false);
+      canvas.addEventListener("mousemove", draw, false);
+      canvas.addEventListener("mouseup", stopDrawing, false);
+      canvas.addEventListener("mouseleave", stopDrawing, false);
+
+      // 控制按鈕事件處理
+      document.getElementById("btnUndo").addEventListener("click", undo, false);
+      document.getElementById("btnRedo").addEventListener("click", redo, false);
+
+      document.getElementById("btnClear").addEventListener("click", function() {
+        var rect = container.getBoundingClientRect();
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        saveState();
+      }, false);
+
+      // 粗細選擇事件
+      var sizeBtns = document.querySelectorAll(".btn-size");
+      for (var i = 0; i < sizeBtns.length; i++) {
+        sizeBtns[i].addEventListener("click", function(e) {
+          for (var j = 0; j < sizeBtns.length; j++) {
+            sizeBtns[j].className = sizeBtns[j].className.replace(" active", "");
+          }
+          this.className += " active";
+          currentSize = parseInt(this.getAttribute("data-size"), 10);
+        }, false);
+      }
+
+      // 顏色選擇事件
+      var colorBtns = document.querySelectorAll(".color-btn");
+      for (var k = 0; k < colorBtns.length; k++) {
+        colorBtns[k].addEventListener("click", function(e) {
+          for (var m = 0; m < colorBtns.length; m++) {
+            colorBtns[m].className = colorBtns[m].className.replace(" active", "");
+          }
+          document.getElementById("btnEraser").className = document.getElementById("btnEraser").className.replace(" active", "");
+          this.className += " active";
+          
+          currentColor = this.getAttribute("data-color");
+          isEraser = false;
+        }, false);
+      }
+
+      // 橡皮擦切換
+      document.getElementById("btnEraser").addEventListener("click", function() {
+        for (var n = 0; n < colorBtns.length; n++) {
+          colorBtns[n].className = colorBtns[n].className.replace(" active", "");
+        }
+        this.className += " active";
+        isEraser = true;
+      }, false);
+
+      // 視窗大小改變或旋轉螢幕時重設畫布
+      window.addEventListener("resize", initCanvasSize, false);
+
+      // 初始化畫布
+      window.onload = function() {
+        initCanvasSize();
+      };
+    })();
+  </script>
+</body>
+</html>
